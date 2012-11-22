@@ -70,6 +70,25 @@ class WebBackend(backend.Backend):
       self._logger.warning('Socket error recording temperature; dropping reading.')
       return None
 
+  def LogCoinInserted(self, selector_name, ticks, when=None):
+    # If the ticks are out of bounds, reject it.
+    min_val = kb_common.COIN_SELECTOR_RANGE[0]
+    max_val = kb_common.COIN_SELECTOR_RANGE[1]
+    if ticks < min_val or ticks > max_val:
+      raise ValueError, 'Coin ticks are out of bounds'
+
+    try:
+      return self._client.LogCoinInserted(selector_name, ticks, when)
+    except kbapi.NotFoundError:
+      self._logger.warning('No selector on backend named "%s"' % (selector_name,))
+      return None
+    except kbapi.ServerError:
+      self._logger.warning('Server error recording coin ticks; dropping reading.')
+      return None
+    except socket.error:
+      self._logger.warning('Socket error recording coin ticks; dropping reading.')
+      return None
+
   def GetAuthToken(self, auth_device, token_value):
     try:
       return self._client.GetToken(auth_device, token_value)

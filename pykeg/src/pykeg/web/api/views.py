@@ -480,6 +480,60 @@ def get_thermo_sensor_logs(request, sensor_name):
   return sensor.thermolog_set.all()[:60*2]
 
 @py_to_json
+def all_coin_selectors(request):
+  return request.kbsite.coinselectors.all()
+
+def _get_selector_or_404(request, selector_name):
+  try:
+    selector = models.CoinSelector.objects.get(site=request.kbsite,
+        name=selector_name)
+  except models.CoinSelector.DoesNotExist:
+    raise Http404
+  return selector
+
+@csrf_exempt
+def get_coin_selector(request, selector_name):
+  if request.method == 'POST':
+    return _coin_selector_post(request, selector_name)
+  else:
+    return _coin_selector_get(request, selector_name)
+
+@py_to_json
+def _coin_selector_get(request, selector_name):
+  selector = _get_selector_or_404(request, selector_name)
+  logs = selector.paymentlog_set.all()
+  if not logs:
+    last_ticks = None
+    last_time = None
+  else:
+    last_temp = logs[0].ticks
+    last_time = logs[0].time
+  res = {
+    'selector': to_dict(selector),
+    'last_ticks': last_ticks,
+    'last_time': last_time,
+  }
+  return res
+
+@py_to_json
+@auth_required
+def _coin_selector_post(request, selector_name):
+  form = forms.CoinSelectorPostForm(request.POST)
+  if not form.is_valid():
+    raise kbapi.BadRequestError, _form_errors(form)
+  cd = form.cleaned_data
+  b = KegbotBackend(site=request.kbsite)
+  selector, created = models.CoinSelector.objects.get_or_create(site=request.kbsite,
+      name=selector_name)
+  # TODO(mikey): use form fields to compute `when`
+  return b.LogCoinInserted(selector.name, cd['ticks'])
+
+@py_to_json
+def get_coin_selector_logs(request, selector_name):
+  selector = _get_selector_or_404(request, selector_name)
+  return selector.paymentlog_set.all()[:60*2]
+
+@py_to_json
 def get_api_key(request):
   user = request.user
   api_key = ''

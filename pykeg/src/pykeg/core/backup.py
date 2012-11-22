@@ -53,6 +53,7 @@ def dump(output_fp, kbsite, indent=None, log_cb=_no_log):
       ('bdb_styles', bdb_models.BeerStyle.objects.all()),
       ('bdb_beertypes', bdb_models.BeerType.objects.all()),
       ('thermosensors', kbsite.thermosensors.all().order_by('id')),
+      ('coinselectors', kbsite.coinselectors.all().order_by('id')),
       ('kegs', kbsite.kegs.all().order_by('id')),
       ('taps', kbsite.taps.all().order_by('id')),
       ('sessions', kbsite.sessions.all().order_by('id')),
@@ -132,6 +133,13 @@ def restore(input_fp, kbsite, log_cb=_no_log):
     sensor.nice_name = rec.nice_name
     sensor.save()
     _log(sensor)
+
+  kbsite.coinselectors.all().delete()
+  for rec in data.get('coinselectors', []):
+    selector = models.CoinSelector(site=kbsite, seqn=int(rec.id))
+    selector.name = rec.name
+    selector.save()
+    _log(selector)
 
   kbsite.kegs.all().delete()
   for rec in data['kegs']:

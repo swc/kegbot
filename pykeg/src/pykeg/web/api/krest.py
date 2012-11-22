@@ -256,6 +256,14 @@ class KrestClient:
     # TODO(mikey): include post data
     return self.DoPOST(endpoint, post_data=post_data).object
 
+  def LogCoinInserted(self, selector_name, ticks, when=None):
+    endpoint = '/coin-selectors/%s' % (selector_name,)
+    post_data = {
+      'ticks': ticks,
+    }
+    # TODO(mikey): include post data
+    return self.DoPOST(endpoint, post_data=post_data).object
+
   def TapStatus(self):
     """Gets the status of all taps."""
     return self.DoGET('taps').objects

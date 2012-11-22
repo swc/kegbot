@@ -79,21 +79,23 @@ class ThermoSummaryLogAdmin(admin.ModelAdmin):
 admin.site.register(models.ThermoSummaryLog, ThermoSummaryLogAdmin)
 
 class CoinSelectorAdmin(admin.ModelAdmin):
-    list_display = ('name')
+    list_display = ('name',)
 admin.site.register(models.CoinSelector, CoinSelectorAdmin)
 
-class PaymentlogAdmin(admin.ModelAdmin):
-    list_display = ('selector', 'amount', 'time')
-    list_filter = ('selector', 'time')
-admin.site.register(models.Paymentlog, PaymentlogAdmin)
+class PaymentAdmin(admin.ModelAdmin):
+  list_display = ('seqn', 'user', 'amount', 'time')
+  list_filter = ('amount', 'time')
+  search_fields = ('seqn', 'user__username')
+admin.site.register(models.Payment, PaymentAdmin)
 
-class PaymentSummaryLogAdmin(admin.ModelAdmin):
-  list_display = ('selector', 'time', 'total')
-  list_filter = ('selector', 'time')
-admin.site.register(models.PaymentSummaryLog, PaymentSummaryLogAdmin)
+class PaymentSessionAdmin(admin.ModelAdmin):
+  list_display = ('id', 'site', 'seqn', 'start_time', 'amount', 'GetTitle')
+  list_filter = ('site', 'start_time')
+  search_fields = ('name',)
+admin.site.register(models.PaymentSession, PaymentSessionAdmin)
 
 class SystemEventAdmin(admin.ModelAdmin):
-  list_display = ('seqn', 'kind', 'time', 'user', 'drink', 'keg', 'session')
+  list_display = ('seqn', 'kind', 'time', 'user', 'drink', 'keg', 'payment', 'session')
   list_filter = ('kind', 'time')
 admin.site.register(models.SystemEvent, SystemEventAdmin)
 

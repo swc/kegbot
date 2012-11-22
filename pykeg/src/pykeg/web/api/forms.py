@@ -43,6 +43,12 @@ class ThermoPostForm(forms.Form):
   when = forms.IntegerField(required=False)
   now = forms.IntegerField(required=False)
 
+class CoinSelectorPostForm(forms.Form):
+  """Handles posting new coin selector messages."""
+  ticks = forms.FloatField()
+  when = forms.IntegerField(required=False)
+  now = forms.IntegerField(required=False)
+
 class CreateKegTapForm(forms.ModelForm):
   class Meta:
     model = models.KegTap

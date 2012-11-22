@@ -24,6 +24,8 @@ class DrinkManager(models.Manager):
   def valid(self):
     return self.filter(status='valid')
 
+class PaymentManager(models.Manager):
+  """Manager for payment models."""
 
 class SessionManager(models.Manager):
   """Manager for session models."""

@@ -292,12 +292,29 @@ def ThermoLogToProto(record, full=False):
   ret.time = datestr(record.time)
   return ret
 
+@converts(models.Paymentlog)
+def PaymentLogToProto(record, full=False):
+  ret = models_pb2.PaymentLog()
+  ret.id = record.seqn
+  ret.sensor_id = record.selector.seqn
+  ret.ticks = record.ticks
+  ret.amount = record.amount
+  ret.time = datestr(record.time)
+  return ret
+
 @converts(models.ThermoSensor)
 def ThermoSensorToProto(record, full=False):
   ret = models_pb2.ThermoSensor()
   ret.id = record.seqn
   ret.sensor_name = record.raw_name
   ret.nice_name = record.nice_name
+  return ret
+
+@converts(models.CoinSelector)
+def CoinSelectorToProto(record, full=False):
+  ret = models_pb2.CoinSelector()
+  ret.id = record.seqn
+  ret.selector_name = record.selector_name
   return ret
 
 @converts(models.ThermoSummaryLog)
@@ -371,6 +388,10 @@ def SystemEventToProto(record, full=False):
     ret.user_id = str(record.user.username)
     if full:
       ret.user.MergeFrom(ToProto(record.user, full=True))
+  if record.payment:
+    ret.payment_id = str(record.payment.seqn)
+    if full:
+      ret.payment.MergeFrom(ToProto(record.payment, full=True))
 
   image = None
   if record.kind in ('drink_poured', 'session_started', 'session_joined') and record.user:

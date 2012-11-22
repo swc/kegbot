@@ -189,6 +189,33 @@ class KegbotBackend(backend.Backend):
     # TODO(mikey): recompute session.
     return d
 
+  def RecordPayment(self, selector_name, ticks, amount=None, username=None,
+      auth_token=None, do_postprocess=True):
+
+    if amount is None:
+      amount = float(ticks) * 0.05
+
+    user = None
+    if username:
+      user = self._GetUserObjFromUsername(username)
+    elif self._site.settings.default_user:
+      user = self._site.settings.default_user
+
+    if not event_time:
+      event_time = datetime.datetime.now()
+
+    p = models.Payment(ticks=ticks, site=self._site, user=user,
+        amount=amount, time=event_time, auth_token=auth_token)
+    models.PaymentSession.AssignSessionForPayment(p)
+    p.save()
+    if do_postprocess:
+      d.PostProcess()
+      event_list = [e for e in models.SystemEvent.objects.filter(payment=p).order_by('id')]
+      if settings.HAVE_CELERY:
+        tasks.handle_new_events.delay(self._site, event_list)
+
+    return p
+  
   def LogSensorReading(self, sensor_name, temperature, when=None):
     if not when:
       when = datetime.datetime.now()
@@ -211,6 +238,26 @@ class KegbotBackend(backend.Backend):
     record, created = models.Thermolog.objects.get_or_create(site=self._site,
         sensor=sensor, time=when, defaults=defaults)
     record.temp = temperature
+    record.save()
+    return record
+
+  def LogCoinInserted(self, selector_name, ticks, when=None):
+    if not when:
+      when = datetime.datetime.now()
+
+    # If the ticks are out of bounds, reject it.
+    min_val = kb_common.COIN_SELECTOR_RANGE[0]
+    max_val = kb_common.COIN_SELECTOR_RANGE[1]
+    if ticks < min_val or ticks > max_val:
+      raise ValueError('Coin ticks are out of bounds')
+
+    selector = self._GetSelectorFromName(selector_name)
+    defaults = {
+        'ticks': ticks,
+    }
+    record, created = models.Paymentlog.objects.get_or_create(site=self._site,
+        selector=selector, time=when, defaults=defaults)
+    record.ticks = ticks
     record.save()
     return record
 

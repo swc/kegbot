@@ -635,6 +635,20 @@ class _AbstractChunk(models.Model):
     self._AddDrinkNoSave(drink)
     self.save()
 
+class _AbstractPaymentChunk(models.Model):
+  class Meta:
+    abstract = True
+    get_latest_by = 'start_time'
+    ordering = ('-start_time',)
+
+  start_time = models.DateTimeField()
+  amount = models.FloatField(default=0)
+
+  def AddPayment(self, payment):
+    self.start_time = payment.time
+    self.amount = payment.amount
+    self.save()
+
 
 class DrinkingSession(_AbstractChunk):
   """A collection of contiguous drinks. """
@@ -818,7 +832,7 @@ def _drinking_session_pre_save(sender, instance, **kwargs):
 pre_save.connect(_set_seqn_pre_save, sender=DrinkingSession)
 pre_save.connect(_drinking_session_pre_save, sender=DrinkingSession)
 
-class PaymentSession(_AbstractChunk):
+class PaymentSession(_AbstractPaymentChunk):
   """A collection of contiguous payments. """
   class Meta:
     unique_together = ('site', 'seqn')
@@ -1305,7 +1319,7 @@ class SystemEvent(models.Model):
       ('session_joined', 'User joined session'),
       ('keg_tapped', 'Keg tapped'),
       ('keg_ended', 'Keg ended'),
-      ('coin_inserted', 'Coin inserted'),
+      ('payment_made', 'Payment made'),
   )
 
   site = models.ForeignKey(KegbotSite, related_name='events')
@@ -1322,9 +1336,9 @@ class SystemEvent(models.Model):
   keg = models.ForeignKey(Keg, blank=True, null=True,
       related_name='events',
       help_text='Keg involved in the event, if any.')
-  selector = models.ForeignKey(CoinSelector, blank=True, null=True,
+  payment = models.ForeignKey(Payment, blank=True, null=True,
       related_name='events',
-      help_text='Coin selector involved in the event, if any.')
+      help_text='Payment involved in the event, if any.')
   session = models.ForeignKey(DrinkingSession, blank=True, null=True,
       related_name='events',
       help_text='Session involved in the event, if any.')
@@ -1342,8 +1356,8 @@ class SystemEvent(models.Model):
       ret = 'Keg %i tapped' % self.keg.seqn
     elif self.kind == 'keg_ended':
       ret = 'Keg %i ended' % self.keg.seqn
-    elif self.kind == 'coin_inserted':
-      ret = 'Coin %i inserted' % self.selector.seqn
+    elif self.kind == 'payment_made':
+      ret = 'Payment %i made' % self.selector.seqn
     else:
       ret = 'Unknown event type (%s)' % self.kind
     return 'Event %i: %s' % (self.seqn, ret)

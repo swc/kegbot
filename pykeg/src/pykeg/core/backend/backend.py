@@ -68,6 +68,10 @@ class Backend:
   def LogSensorReading(self, sensor_name, temperature, when=None):
     """Records a new sensor reading."""
     raise NotImplementedError
+  
+  def LogCoinInserted(self, selector_name, ticks, when=None):
+    """Records a new coin insertion."""
+    raise NotImplementedError
 
   def GetAuthToken(self, auth_device, token_value):
     """Returns an AuthenticationToken instance."""
