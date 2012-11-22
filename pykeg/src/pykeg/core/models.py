@@ -806,110 +806,196 @@ class KegSessionChunk(_AbstractChunk):
 
 
 class ThermoSensor(models.Model):
-  class Meta:
-    unique_together = ('site', 'seqn')
-
-  site = models.ForeignKey(KegbotSite, related_name='thermosensors')
-  seqn = models.PositiveIntegerField(editable=False)
-  raw_name = models.CharField(max_length=256)
-  nice_name = models.CharField(max_length=128)
-
-  def __str__(self):
-    return '%s (%s) ' % (self.nice_name, self.raw_name)
-
-  def LastLog(self):
-    try:
-      return self.thermolog_set.latest()
-    except Thermolog.DoesNotExist:
-      return None
+    class Meta:
+        unique_together = ('site', 'seqn')
+    
+    site = models.ForeignKey(KegbotSite, related_name='thermosensors')
+    seqn = models.PositiveIntegerField(editable=False)
+    raw_name = models.CharField(max_length=256)
+    nice_name = models.CharField(max_length=128)
+    
+    def __str__(self):
+        return '%s (%s) ' % (self.nice_name, self.raw_name)
+    
+    def LastLog(self):
+        try:
+            return self.thermolog_set.latest()
+        except Thermolog.DoesNotExist:
+            return None
 
 pre_save.connect(_set_seqn_pre_save, sender=ThermoSensor)
 
 
 class Thermolog(models.Model):
-  """ A log from an ITemperatureSensor device of periodic measurements. """
-  class Meta:
-    unique_together = ('site', 'seqn')
-    get_latest_by = 'time'
-    ordering = ('-time',)
-
-  site = models.ForeignKey(KegbotSite, related_name='thermologs')
-  seqn = models.PositiveIntegerField(editable=False)
-  sensor = models.ForeignKey(ThermoSensor)
-  temp = models.FloatField()
-  time = models.DateTimeField()
-
-  def __str__(self):
-    return '%s %.2f C / %.2f F [%s]' % (self.sensor, self.TempC(),
-        self.TempF(), self.time)
-
-  def TempC(self):
-    return self.temp
-
-  def TempF(self):
-    return util.CtoF(self.temp)
+    """ A log from an ITemperatureSensor device of periodic measurements. """
+    class Meta:
+        unique_together = ('site', 'seqn')
+        get_latest_by = 'time'
+        ordering = ('-time',)
+    
+    site = models.ForeignKey(KegbotSite, related_name='thermologs')
+    seqn = models.PositiveIntegerField(editable=False)
+    sensor = models.ForeignKey(ThermoSensor)
+    temp = models.FloatField()
+    time = models.DateTimeField()
+    
+    def __str__(self):
+        return '%s %.2f C / %.2f F [%s]' % (self.sensor, self.TempC(),
+                                            self.TempF(), self.time)
+    
+    def TempC(self):
+        return self.temp
+    
+    def TempF(self):
+        return util.CtoF(self.temp)
 
 def _thermolog_post_save(sender, instance, **kwargs):
-  daily_date = datetime.datetime(year=instance.time.year,
-      month=instance.time.month,
-      day=instance.time.day)
-  defaults = {
-      'site': instance.site,
-      'num_readings': 1,
-      'min_temp': instance.temp,
-      'max_temp': instance.temp,
-      'mean_temp': instance.temp,
-  }
-  daily_log, created = ThermoSummaryLog.objects.get_or_create(
-      sensor=instance.sensor,
-      period='daily',
-      time=daily_date,
-      defaults=defaults)
-
-  if not created:
-    new_mean = daily_log.num_readings * daily_log.mean_temp + instance.temp
-    new_mean /= daily_log.num_readings + 1
-    daily_log.mean_temp = new_mean
-
-    daily_log.num_readings += 1
-
-    if instance.temp > daily_log.max_temp:
-      daily_log.max_temp = instance.temp
-    if instance.temp < daily_log.min_temp:
-      daily_log.min_temp = instance.temp
-
-  daily_log.save()
-
-  # Keep at least the most recent 24 hours, dropping any older entries.
-  now = datetime.datetime.now()
-  keep_time = now - datetime.timedelta(hours=24)
-  old_entries = Thermolog.objects.filter(site=instance.site, time__lt=keep_time)
-  old_entries.delete()
+    daily_date = datetime.datetime(year=instance.time.year,
+                                   month=instance.time.month,
+                                   day=instance.time.day)
+    defaults = {
+        'site': instance.site,
+        'num_readings': 1,
+        'min_temp': instance.temp,
+        'max_temp': instance.temp,
+        'mean_temp': instance.temp,
+    }
+    daily_log, created = ThermoSummaryLog.objects.get_or_create(
+                                                                sensor=instance.sensor,
+                                                                period='daily',
+                                                                time=daily_date,
+                                                                defaults=defaults)
+    
+    if not created:
+        new_mean = daily_log.num_readings * daily_log.mean_temp + instance.temp
+        new_mean /= daily_log.num_readings + 1
+        daily_log.mean_temp = new_mean
+        
+        daily_log.num_readings += 1
+        
+        if instance.temp > daily_log.max_temp:
+            daily_log.max_temp = instance.temp
+        if instance.temp < daily_log.min_temp:
+            daily_log.min_temp = instance.temp
+    
+    daily_log.save()
+    
+    # Keep at least the most recent 24 hours, dropping any older entries.
+    now = datetime.datetime.now()
+    keep_time = now - datetime.timedelta(hours=24)
+    old_entries = Thermolog.objects.filter(site=instance.site, time__lt=keep_time)
+    old_entries.delete()
 
 pre_save.connect(_set_seqn_pre_save, sender=Thermolog)
 post_save.connect(_thermolog_post_save, sender=Thermolog)
 
 
 class ThermoSummaryLog(models.Model):
-  """A summarized temperature sensor log."""
-  class Meta:
-    unique_together = ('site', 'seqn')
-
-  PERIOD_CHOICES = (
-    ('daily', 'daily'),
-  )
-  site = models.ForeignKey(KegbotSite, related_name='thermosummarylogs')
-  seqn = models.PositiveIntegerField(editable=False)
-  sensor = models.ForeignKey(ThermoSensor)
-  time = models.DateTimeField()
-  period = models.CharField(max_length=64, choices=PERIOD_CHOICES,
-      default='daily')
-  num_readings = models.PositiveIntegerField()
-  min_temp = models.FloatField()
-  max_temp = models.FloatField()
-  mean_temp = models.FloatField()
+    """A summarized temperature sensor log."""
+    class Meta:
+        unique_together = ('site', 'seqn')
+    
+    PERIOD_CHOICES = (
+                      ('daily', 'daily'),
+                      )
+    site = models.ForeignKey(KegbotSite, related_name='thermosummarylogs')
+    seqn = models.PositiveIntegerField(editable=False)
+    sensor = models.ForeignKey(ThermoSensor)
+    time = models.DateTimeField()
+    period = models.CharField(max_length=64, choices=PERIOD_CHOICES,
+                              default='daily')
+    num_readings = models.PositiveIntegerField()
+    min_temp = models.FloatField()
+    max_temp = models.FloatField()
+    mean_temp = models.FloatField()
 
 pre_save.connect(_set_seqn_pre_save, sender=ThermoSummaryLog)
+
+
+class CoinSelector(models.Model):
+    class Meta:
+        unique_together = ('site', 'seqn')
+    
+    site = models.ForeignKey(KegbotSite, related_name='coinselectors')
+    seqn = models.PositiveIntegerField(editable=False)
+    name = models.CharField(max_length=128,
+        help_text='The display name for this coin selector. Example: Coin Selector.')
+    
+    def __str__(self):
+        return self.name
+    
+    def LastLog(self):
+        try:
+            return self.paymentlog_set.latest()
+        except Paymentlog.DoesNotExist:
+            return None
+
+pre_save.connect(_set_seqn_pre_save, sender=CoinSelector)
+
+
+class Paymentlog(models.Model):
+    """ A log from a payment module such as a coin or bill selector. """
+    class Meta:
+        unique_together = ('site', 'seqn')
+        get_latest_by = 'time'
+        ordering = ('-time',)
+    
+    site = models.ForeignKey(KegbotSite, related_name='paymentlogs')
+    seqn = models.PositiveIntegerField(editable=False)
+    selector = models.ForeignKey(CoinSelector)
+    amount = models.FloatField()
+    time = models.DateTimeField()
+    
+    def __str__(self):
+        return '%s %s [%s]' % (self.selector, self.amount, self.time)
+
+def _paymentlog_post_save(sender, instance, **kwargs):
+    daily_date = datetime.datetime(year=instance.time.year,
+                                   month=instance.time.month,
+                                   day=instance.time.day)
+    defaults = {
+        'site': instance.site,
+        'amount': instance.amount,
+    }
+    daily_log, created = PaymentSummaryLog.objects.get_or_create(
+                                                                selector=instance.selector,
+                                                                period='daily',
+                                                                time=daily_date,
+                                                                defaults=defaults)
+    
+    if not created:
+        new_total = daily_log.total + instance.amount
+        daily_log.total = new_total
+    
+    daily_log.save()
+    
+    # Keep at least the most recent 24 hours, dropping any older entries.
+    now = datetime.datetime.now()
+    keep_time = now - datetime.timedelta(hours=24)
+    old_entries = Paymentlog.objects.filter(site=instance.site, time__lt=keep_time)
+    old_entries.delete()
+
+pre_save.connect(_set_seqn_pre_save, sender=Paymentlog)
+post_save.connect(_paymentlog_post_save, sender=Paymentlog)
+
+
+class PaymentSummaryLog(models.Model):
+    """A summarized payment module log."""
+    class Meta:
+        unique_together = ('site', 'seqn')
+    
+    PERIOD_CHOICES = (
+                      ('daily', 'daily'),
+                      )
+    site = models.ForeignKey(KegbotSite, related_name='paymentsummarylogs')
+    seqn = models.PositiveIntegerField(editable=False)
+    selector = models.ForeignKey(CoinSelector)
+    time = models.DateTimeField()
+    period = models.CharField(max_length=64, choices=PERIOD_CHOICES,
+                              default='daily')
+    total = models.FloatField()
+
+pre_save.connect(_set_seqn_pre_save, sender=PaymentSummaryLog)
 
 
 class _StatsModel(models.Model):

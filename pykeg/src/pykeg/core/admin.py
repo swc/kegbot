@@ -60,7 +60,6 @@ admin.site.register(models.DrinkingSession, DrinkingSessionAdmin)
 
 class ThermoSensorAdmin(admin.ModelAdmin):
   list_display = ('nice_name', 'raw_name')
-
 admin.site.register(models.ThermoSensor, ThermoSensorAdmin)
 
 def thermolog_deg_c(obj):
@@ -72,14 +71,26 @@ def thermolog_deg_f(obj):
 class ThermologAdmin(admin.ModelAdmin):
   list_display = ('sensor', thermolog_deg_c, thermolog_deg_f, 'time')
   list_filter = ('sensor', 'time')
-
 admin.site.register(models.Thermolog, ThermologAdmin)
 
 class ThermoSummaryLogAdmin(admin.ModelAdmin):
   list_display = ('sensor', 'time', 'min_temp', 'max_temp', 'mean_temp')
   list_filter = ('sensor', 'time')
-
 admin.site.register(models.ThermoSummaryLog, ThermoSummaryLogAdmin)
+
+class CoinSelectorAdmin(admin.ModelAdmin):
+    list_display = ('name')
+admin.site.register(models.CoinSelector, CoinSelectorAdmin)
+
+class PaymentlogAdmin(admin.ModelAdmin):
+    list_display = ('selector', 'amount', 'time')
+    list_filter = ('selector', 'time')
+admin.site.register(models.Paymentlog, PaymentlogAdmin)
+
+class PaymentSummaryLogAdmin(admin.ModelAdmin):
+  list_display = ('selector', 'time', 'total')
+  list_filter = ('selector', 'time')
+admin.site.register(models.PaymentSummaryLog, PaymentSummaryLogAdmin)
 
 class SystemEventAdmin(admin.ModelAdmin):
   list_display = ('seqn', 'kind', 'time', 'user', 'drink', 'keg', 'session')
