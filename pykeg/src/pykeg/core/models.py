@@ -502,6 +502,70 @@ class Drink(models.Model):
 
 pre_save.connect(_set_seqn_pre_save, sender=Drink)
 
+class Payment(models.Model):
+  """ Table of payment records """
+  class Meta:
+    unique_together = ('site', 'seqn')
+    get_latest_by = 'time'
+    ordering = ('-time',)
+
+  @models.permalink
+  def get_absolute_url(self):
+    return ('kb-payment', (self.site.url(), str(self.seqn)))
+
+  def ShortUrl(self):
+    parts = [self.site.full_url()]
+    parts.append('p')
+    parts.append(str(self.seqn))
+    return '/'.join(parts)
+
+  def Amount(self):
+    return self.amount
+
+  def __str__(self):
+    return "Payment %s:%i by %s" % (self.site.name, self.seqn, self.user)
+
+  def _UpdateSystemStats(self):
+    stats, created = SystemStats.objects.get_or_create(site=self.site)
+    stats.Update(self)
+
+  def _UpdateUserStats(self):
+    if self.user:
+      stats, created = UserStats.objects.get_or_create(user=self.user, site=self.site)
+      stats.Update(self)
+
+  def _UpdateSessionStats(self):
+    if self.session:
+      stats, created = SessionStats.objects.get_or_create(session=self.session, site=self.site)
+      stats.Update(self)
+
+  def PostProcess(self):
+    self._UpdateSystemStats()
+    self._UpdateUserStats()
+    self._UpdateSessionStats()
+    SystemEvent.ProcessPayment(self)
+
+  objects = managers.PaymentManager()
+
+  site = models.ForeignKey(KegbotSite, related_name='payments')
+  seqn = models.PositiveIntegerField(editable=False)
+
+  # Ticks records the actual coin selector event, which is never changed once
+  # recorded.
+  ticks = models.PositiveIntegerField()
+
+  # Amount is the actual amount of the payment.  Its initial value is a function
+  # of `ticks`, but it may be adjusted, eg due to calibration or mis-recording.
+  amount = models.FloatField()
+
+  time = models.DateTimeField()
+  user = models.ForeignKey(User, null=True, blank=True, related_name='payments')
+  session = models.ForeignKey('PaymentSession',
+      related_name='payments', null=True, blank=True, editable=False)
+  auth_token = models.CharField(max_length=256, blank=True, null=True)
+
+pre_save.connect(_set_seqn_pre_save, sender=Payment)
+
 class AuthenticationToken(models.Model):
   """A secret token to authenticate a user, optionally pin-protected."""
   class Meta:
@@ -753,6 +817,181 @@ def _drinking_session_pre_save(sender, instance, **kwargs):
 
 pre_save.connect(_set_seqn_pre_save, sender=DrinkingSession)
 pre_save.connect(_drinking_session_pre_save, sender=DrinkingSession)
+
+class PaymentSession(_AbstractChunk):
+  """A collection of contiguous payments. """
+  class Meta:
+    unique_together = ('site', 'seqn')
+    get_latest_by = 'start_time'
+    ordering = ('-start_time',)
+
+  objects = managers.SessionManager()
+  site = models.ForeignKey(KegbotSite, related_name='paymentsessions')
+  seqn = models.PositiveIntegerField(editable=False)
+  name = models.CharField(max_length=256, blank=True, null=True)
+  slug = AutoSlugField(populate_from='name', unique_with='site', blank=True,
+      null=True)
+
+  def __str__(self):
+    return "Session #%s: %s" % (self.seqn, self.start_time)
+
+  def RecomputeStats(self):
+    self.stats.all().delete()
+    try:
+      last_p = self.payments.latest()
+      last_p._UpdateSessionStats()
+    except Payment.DoesNotExist:
+      pass
+
+  @models.permalink
+  def get_absolute_url(self):
+    if self.slug:
+      slug = self.slug
+    else:
+      slug = 'paymentsession-%i' % self.seqn
+    return ('kb-paymentsession',  (), {
+      'kbsite_name' : self.site.url(),
+      'year' : self.start_time.year,
+      'month' : '%02i' % self.start_time.month,
+      'day' : '%02i' % self.start_time.day,
+      'seqn' : self.seqn,
+      'slug' : slug})
+
+  def GetStatsRecord(self):
+    try:
+      return PaymentSessionStats.objects.get(session=self)
+    except PaymentSessionStats.DoesNotExist:
+      return None
+
+  def GetStats(self):
+    record = self.GetStatsRecord()
+    if record:
+      return record.stats
+    return {}
+
+  def summarize_payors(self):
+    def fmt(user):
+      url = '/payor/%s/' % (user.username,)
+      return '<a href="%s">%s</a>' % (url, user.username)
+    chunks = self.user_chunks.all().order_by('-amount')
+    users = tuple(c.user for c in chunks)
+    names = tuple(fmt(u) for u in users if u)
+
+    if None in users:
+      guest_trailer = ' (and possibly others)'
+    else:
+      guest_trailer = ''
+
+    num = len(names)
+    if num == 0:
+      return 'no known payors'
+    elif num == 1:
+      ret = names[0]
+    elif num == 2:
+      ret = '%s and %s' % names
+    elif num == 3:
+      ret = '%s, %s and %s' % names
+    else:
+      if guest_trailer:
+        return '%s, %s and at least %i others' % (names[0], names[1], num-2)
+      else:
+        return '%s, %s and %i others' % (names[0], names[1], num-2)
+
+    return '%s%s' % (ret, guest_trailer)
+
+  def GetTitle(self):
+    if self.name:
+      return self.name
+    else:
+      return 'Payment session %i' % (self.seqn,)
+
+  def AddPayment(self, payment):
+    super(PaymentSession, self).AddPayment(payment)
+    session_delta = payment.site.settings.GetPaymentSessionTimeoutDelta()
+
+    defaults = {
+      'start_time': payment.time,
+    }
+
+    # Update or create a SessionChunk.
+    chunk, created = SessionChunk.objects.get_or_create(session=self,
+        user=payment.user, defaults=defaults)
+    chunk.AddPayment(payment)
+
+    # Update or create a UserSessionChunk.
+    chunk, created = UserSessionChunk.objects.get_or_create(session=self,
+        site=payment.site, user=payment.user, defaults=defaults)
+    chunk.AddPayment(payment)
+
+  def UserChunksByAmount(self):
+    chunks = self.user_chunks.all().order_by('-amount')
+    return chunks
+
+  def IsActiveNow(self):
+    return self.IsActive(datetime.datetime.now())
+
+  def IsActive(self, now):
+    return self.end_time > now
+
+  def Rebuild(self):
+    self.amount = 0
+    self.chunks.all().delete()
+    self.user_chunks.all().delete()
+
+    drinks = self.payments
+    if not payments:
+      # TODO(mikey): cancel/delete the session entirely.  As it is, session will
+      # remain a placeholder.
+      return
+
+    session_delta = self.site.settings.GetSessionTimeoutDelta()
+    min_time = None
+    max_time = None
+    for p in payments:
+      self.AddPayment(p)
+      if min_time is None or p.time < min_time:
+        min_time = p.time
+      if max_time is None or p.time > max_time:
+        max_time = p.time
+    self.start_time = min_time
+    self.end_time = max_time + session_delta
+    self.save()
+
+  @classmethod
+  def AssignSessionForPayment(cls, payment):
+    # Return existing session if already assigned.
+    if payment.session:
+      return payment.session
+
+    # Return last session if one already exists
+    q = payment.site.sessions.all().order_by('-end_time')[:1]
+    if q and q[0].IsActive(payment.time):
+      session = q[0]
+      session.AddPayment(payment)
+      payment.session = session
+      payment.save()
+      return session
+
+    # Create a new session
+    session = cls(start_time=payment.time, end_time=payment.time,
+        site=payment.site)
+    session.save()
+    session.AddPayment(payment)
+    payment.session = session
+    payment.save()
+    return session
+
+def _payment_session_pre_save(sender, instance, **kwargs):
+  session = instance
+  if not session.name:
+    session.name = 'Payment session %i' % session.seqn
+
+  # NOTE(mikey): Clear the slug so that updates cause it to be recomputed by
+  # AutoSlugField.  This could be spurious; is there a better way?
+  session.slug = ''
+
+pre_save.connect(_set_seqn_pre_save, sender=PaymentSession)
+pre_save.connect(_payment_session_pre_save, sender=PaymentSession)
 
 
 class SessionChunk(_AbstractChunk):
@@ -1066,6 +1305,7 @@ class SystemEvent(models.Model):
       ('session_joined', 'User joined session'),
       ('keg_tapped', 'Keg tapped'),
       ('keg_ended', 'Keg ended'),
+      ('coin_inserted', 'Coin inserted'),
   )
 
   site = models.ForeignKey(KegbotSite, related_name='events')
@@ -1082,6 +1322,9 @@ class SystemEvent(models.Model):
   keg = models.ForeignKey(Keg, blank=True, null=True,
       related_name='events',
       help_text='Keg involved in the event, if any.')
+  selector = models.ForeignKey(CoinSelector, blank=True, null=True,
+      related_name='events',
+      help_text='Coin selector involved in the event, if any.')
   session = models.ForeignKey(DrinkingSession, blank=True, null=True,
       related_name='events',
       help_text='Session involved in the event, if any.')
@@ -1099,6 +1342,8 @@ class SystemEvent(models.Model):
       ret = 'Keg %i tapped' % self.keg.seqn
     elif self.kind == 'keg_ended':
       ret = 'Keg %i ended' % self.keg.seqn
+    elif self.kind == 'coin_inserted':
+      ret = 'Coin %i inserted' % self.selector.seqn
     else:
       ret = 'Unknown event type (%s)' % self.kind
     return 'Event %i: %s' % (self.seqn, ret)
@@ -1123,6 +1368,41 @@ class SystemEvent(models.Model):
   @classmethod
   def ProcessDrink(cls, drink):
     keg = drink.keg
+    session = drink.session
+    site = drink.site
+    user = drink.user
+
+    if keg:
+      q = keg.events.filter(kind='keg_tapped')
+      if q.count() == 0:
+        e = keg.events.create(site=site, kind='keg_tapped', time=drink.time,
+            keg=keg, user=user, drink=drink, session=session)
+        e.save()
+
+    if session:
+      q = session.events.filter(kind='session_started')
+      if q.count() == 0:
+        e = session.events.create(site=site, kind='session_started',
+            time=session.start_time, drink=drink, user=user)
+        e.save()
+
+    if user:
+      q = user.events.filter(kind='session_joined', session=session)
+      if q.count() == 0:
+        e = user.events.create(site=site, kind='session_joined',
+            time=drink.time, session=session, drink=drink, user=user)
+        e.save()
+
+    q = drink.events.filter(kind='drink_poured')
+    if q.count() == 0:
+      e = drink.events.create(site=site, kind='drink_poured',
+          time=drink.time, drink=drink, user=user, keg=keg,
+          session=session)
+      e.save()
+
+  @classmethod
+  def ProcessSelector(cls, selector):
+    selector = drink.keg
     session = drink.session
     site = drink.site
     user = drink.user
