@@ -480,6 +480,45 @@ def get_thermo_sensor_logs(request, sensor_name):
   return sensor.thermolog_set.all()[:60*2]
 
 @py_to_json
+def all_payments(request):
+  return request.kbsite.payments.all()
+
+def _get_payment_or_404(request, payment_id):
+  try:
+    payment = models.Payment.objects.get(site=request.kbsite,
+        seqn=payment_id)
+  except models.Payment.DoesNotExist:
+    raise Http404
+  return selector
+
+@csrf_exempt
+def get_payment(request, payment_id):
+  if request.method == 'POST':
+    return _payment_post(request, payment_id)
+  else:
+    return _payment_get(request, payment_id)
+
+@py_to_json
+def _payment_get(request, payment_id):
+  payment = _get_payment_or_404(request, payment_id)
+  logs = selector.paymentlog_set.all()
+  if not logs:
+    last_ticks = None
+    last_amount = None
+    last_time = None
+  else:
+    last_ticks = logs[0].ticks
+    last_amount = logs[0].amount
+    last_time = logs[0].time
+  res = {
+    'payment': to_dict(payment),
+    'last_ticks': last_ticks,
+    'last_amount': last_amount,
+    'last_time': last_time,
+  }
+  return res
+
+@py_to_json
 def all_coin_selectors(request):
   return request.kbsite.coinselectors.all()
 
@@ -506,7 +545,7 @@ def _coin_selector_get(request, selector_name):
     last_ticks = None
     last_time = None
   else:
-    last_temp = logs[0].ticks
+    last_ticks = logs[0].ticks
     last_time = logs[0].time
   res = {
     'selector': to_dict(selector),
