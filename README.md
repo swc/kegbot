@@ -1,7 +1,7 @@
 # Kegbot
 
-This is the main code repository for the Kegbot Server package.
-(Or it might be a fork.  The official repository lives here:
+This is a fork of the Kegbot Server package created to add support
+for payment modules. (The official repository lives here:
 https://github.com/Kegbot/kegbot).
 
 
